@@ -1,105 +1,108 @@
 import requests
 import pandas as pd
-import os
 import time
 from bs4 import BeautifulSoup
 from itertools import cycle
+import csv
+import random
+from fake_useragent import UserAgent
+import os
 
+# Инициализация UserAgent
+ua = UserAgent()
 
-def get_okved(link_part, session, headers):
-    link = 'https://www.list-org.com' + link_part
-    response = session.get(link, headers=headers)
-    soup = BeautifulSoup(response.text, 'lxml')
-    
-    okved = None  # Значение по умолчанию
-    
+def get_okved_by_inn(url, inn, session, proxy_pool):
     try:
-        # Получаем все карточки с информацией
-        cards = soup.select('.card.w-100.p-1.p-lg-3.mt-2')
-        
-        if 'man' in link_part:
-            # Обработка для физических лиц (если 'man' в ссылке)
-            for i in range(len(cards)):
-                try:
-                    if cards[i].select('.fa.fas.fa-eye.fa-fw'):
-                        type_of_activity = cards[i].select_one('p')
-                        if type_of_activity:
-                            okved = type_of_activity.text.split('\n')[-2]
-                            if okved:  # Если нашли не пустое значение
-                                break
-                except:
-                    continue
-        else:
-            # Обработка для юридических лиц
-            for i in range(len(cards)):
-                try:
-                    if cards[i].select('.fa.fa-tags.fa-fw'):
-                        type_of_activity = cards[i].select_one('p')
-                        if type_of_activity:
-                            okved = type_of_activity.text
-                            if okved:  # Если нашли не пустое значение
-                                break
-                except:
-                    continue
-    
-    except Exception as e:
-        print(f"Ошибка при парсинге OKVED: {e}")
-    
-    return okved
-
-
-def get_okved_by_inn(url, inn):
-    ind = 1
-
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-        'Accept-Language': 'ru-RU,ru;q=0.8,en-US;q=0.5,en;q=0.3',
-        'Connection': 'keep-alive'
-    }
-
-    proxies_list = [
-        {'http': 'socks5://09LRp2:7dRKbk@46.161.47.5:9441', 'https': 'socks5://09LRp2:7dRKbk@46.161.47.5:9441'},
-        {'http': 'socks5://09LRp2:7dRKbk@188.119.125.31:9024', 'https': 'socks5://09LRp2:7dRKbk@188.119.125.31:9024'},
-        {'http': 'socks5://09LRp2:7dRKbk@193.124.179.181:9905', 'https': 'socks5://09LRp2:7dRKbk@193.124.179.181:9905'}]
-    
-    proxy_pool = cycle(proxies_list)
-    session = requests.Session()
-
-    url += inn
-    try:
+        okved = None
         proxy = next(proxy_pool)
+        headers = {
+            'User-Agent': ua.random,
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+            'Accept-Language': 'ru-RU,ru;q=0.9,en-US;q=0.8',
+            'Connection': 'keep-alive'
+        }
         session.proxies.update(proxy)
         
-        response = session.get(url, headers=headers, timeout=5)
-        response.encoding = 'utf-8'
+        response = session.get(url, headers=headers, timeout=10)
+        response.raise_for_status()
+
         soup = BeautifulSoup(response.text, 'lxml')
-        link_part = soup.select_one('.org_list').select_one('a')['href']
-        time.sleep(5)
-        okved = get_okved(link_part, session, headers)
-        time.sleep(5)
+        cards = soup.select('.background-grey-blue-light.p-15.b-radius-5.m-b-20')
 
-        ind += 1
-        if ind % 50 == 0:
-            print(f'Обработано {ind} записей')
-
-        return okved
-    
+        if not cards:
+            print(f"Для ИНН {inn} не найдено карточек компаний")
+            return None
+        
+        for card in cards:
+            inn_element = card.select_one('.copy-string.cursor.c-black')
+            if inn_element and inn_element.text == str(inn):
+                okved_element = card.select_one('.no-indent.m-b-5.c-black.position-rel.b-radius-5.p-5')
+                
+                if okved_element:
+                    okved = okved_element.text.strip().replace("\t", "").replace("\n", " ")
+                    time.sleep(random.uniform(30, 90))
+                    return okved
+            
+        print(f"Для ИНН {inn} не найдено совпадений в карточках")
+        time.sleep(random.uniform(30, 90))
+        return None
+        
+    except requests.exceptions.RequestException as e:
+        print(f"Ошибка запроса для ИНН {inn}: {e}")
+        return None
     except Exception as e:
-        print(f"Ошибка для ИНН {inn}: {e}")
-        
-        ind += 1
-        if ind % 50 == 0:
-            print(f'Обработано {ind} записей')
-        
+        print(f"Неожиданная ошибка для ИНН {inn}: {e}")
         return None
 
+
+
 def main():
-    df = pd.read_excel('Продажи по контрагентам обработаный.xlsx', sheet_name='Sheet1')
-    df['OKVED'] = df['ИНН'].apply(lambda x: get_okved_by_inn('https://www.list-org.com/search?val=', str(x)))
-    
-    df.to_excel('Результат_с_OKVED.xlsx', index=False)
+    try:
+        df = pd.read_excel('Продажи по контрагентам обработаный.xlsx', sheet_name='Sheet1')
+        df['OKVED'] = None
+        proxies_list = [
+            {'http': 'socks5://09LRp2:7dRKbk@188.119.125.31:9024', 'https': 'socks5://09LRp2:7dRKbk@188.119.125.31:9024'},
+            {'http': 'socks5://09LRp2:7dRKbk@193.124.179.181:9905', 'https': 'socks5://09LRp2:7dRKbk@193.124.179.181:9905'},
+            {'http': 'socks5://kASWKt:1AdeVe@186.65.117.110:9082', 'https': 'socks5://kASWKt:1AdeVe@186.65.117.110:9082'},
+            {'http': 'socks5://WWrRtL:hd1mE2@138.219.122.152:9778', 'https': 'socks5://WWrRtL:hd1mE2@138.219.122.152:9778'},
+            {'http': 'socks5://vJb3f1:jFvJoL@138.219.123.105:9006', 'https': 'socks5://vJb3f1:jFvJoL@138.219.123.105:9006'}
+        ]
+        
+        proxy_pool = cycle(proxies_list)
+        session = requests.Session()
+        base_url = 'https://zachestnyibiznes.ru/search?query='
+        processed_inns = {}
+        
+        file_exists = os.path.isfile('Результат.csv')
+        with open('Результат.csv', 'a', newline='', encoding='utf-8') as csvfile:
+            csv_writer = csv.writer(csvfile)
+            if not file_exists:
+                csv_writer.writerow(['Name', 'INN', 'Email', 'OKVED'])
+            
+            for index, row in df.iterrows():
+                name = row['Name']
+                inn = str(row['INN'])
+                email = row['Email']
+                
+                if inn in processed_inns:
+                    okved = processed_inns[inn]
+                else:
+                    okved = get_okved_by_inn(base_url + inn, inn, session, proxy_pool)
+                    processed_inns[inn] = okved
+                
+                df.loc[index, 'OKVED'] = okved
+                csv_writer.writerow([name, inn, email, okved])
+                
+                if (index + 1) % 100 == 0:
+                    print(f'Обработано {index + 1} записей')
+                    df.to_excel('Результат_промежуточный.xlsx', index=False)  # Промежуточное сохранение
+        
+        df.to_excel('Результат.xlsx', index=False)
+
+    except Exception as e:
+        print(f"Критическая ошибка: {e}")
+        if 'df' in locals():
+            df.to_excel('Результат_аварийный.xlsx', index=False)
+
 if __name__ == '__main__':
     main()
-        
-        
