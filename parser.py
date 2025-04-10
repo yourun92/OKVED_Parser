@@ -30,6 +30,7 @@ def get_okved_by_inn(url, inn, session, proxy_pool):
         cards = soup.select('.background-grey-blue-light.p-15.b-radius-5.m-b-20')
 
         if not cards:
+            time.sleep(random.uniform(5, 10))
             print(f"Для ИНН {inn} не найдено карточек компаний")
             return None
         
@@ -40,11 +41,11 @@ def get_okved_by_inn(url, inn, session, proxy_pool):
                 
                 if okved_element:
                     okved = okved_element.text.strip().replace("\t", "").replace("\n", " ")
-                    time.sleep(random.uniform(30, 90))
+                    time.sleep(random.uniform(5, 10))
                     return okved
             
         print(f"Для ИНН {inn} не найдено совпадений в карточках")
-        time.sleep(random.uniform(30, 90))
+        time.sleep(random.uniform(5, 10))
         return None
         
     except requests.exceptions.RequestException as e:
@@ -58,7 +59,7 @@ def get_okved_by_inn(url, inn, session, proxy_pool):
 
 def main():
     try:
-        df = pd.read_excel('Продажи по контрагентам обработаный.xlsx', sheet_name='Sheet1')
+        df = pd.read_excel('Продажи по контрагентам обработаный.xlsx', sheet_name='Sheet2')
         df['OKVED'] = None
         proxies_list = [
             {'http': 'socks5://09LRp2:7dRKbk@188.119.125.31:9024', 'https': 'socks5://09LRp2:7dRKbk@188.119.125.31:9024'},
@@ -81,7 +82,7 @@ def main():
             
             for index, row in df.iterrows():
                 name = row['Name']
-                inn = str(row['INN'])
+                inn = '0' + str(row['INN']) if len(str(row['INN'])) < 10 else str(row['INN'])
                 email = row['Email']
                 
                 if inn in processed_inns:
@@ -95,7 +96,7 @@ def main():
                 
                 if (index + 1) % 100 == 0:
                     print(f'Обработано {index + 1} записей')
-                    df.to_excel('Результат_промежуточный.xlsx', index=False)  # Промежуточное сохранение
+                    df.to_excel('Результат_промежуточный_2.xlsx', index=False)  # Промежуточное сохранение
         
         df.to_excel('Результат.xlsx', index=False)
 
